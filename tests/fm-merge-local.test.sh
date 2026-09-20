@@ -83,9 +83,44 @@ test_default_path_still_lands_on_main() {
   [ "$(git -C "$dir/project" rev-parse main)" = "$task_head" ] \
     || fail "default landing did not fast-forward main to the task commit"
   [ "$before" != "$task_head" ] || fail "default fixture did not advance beyond main"
-  assert_grep 'local_target_branch=main' "$dir/home/state/task-x1.meta" \
-    "default landing did not record main as its target"
+  assert_no_target_provenance "$dir/home/state/task-x1.meta" "default landing"
   pass "fm-merge-local: omitted target preserves the guarded default-branch path"
+}
+
+# An unselected default attempt must stay unselected: pinning it would refuse
+# the operator's later explicit choice until the record was hand-edited.
+test_unselected_default_attempt_does_not_pin_a_later_explicit_target() {
+  local dir task_head out
+  dir=$(make_case default-then-explicit)
+  task_head=$(git -C "$dir/task" rev-parse HEAD)
+
+  run_merge "$dir" >/dev/null || fail "default local landing failed"
+  assert_no_target_provenance "$dir/home/state/task-x1.meta" "default attempt"
+
+  out=$(run_merge "$dir" --target-branch gsg-sim --target-worktree "$dir/target") \
+    || fail "an explicit target after an unselected default attempt was refused: $out"
+
+  [ "$(git -C "$dir/target" rev-parse HEAD)" = "$task_head" ] \
+    || fail "the explicit retry did not land on the selected target"
+  assert_grep 'local_target_branch=gsg-sim' "$dir/home/state/task-x1.meta" \
+    "the explicit retry did not record its selection"
+  pass "fm-merge-local: an unselected default attempt leaves a later explicit target selectable"
+}
+
+test_empty_target_options_refuse_instead_of_defaulting() {
+  local dir main_before rc=0
+  dir=$(make_case empty-target)
+  main_before=$(git -C "$dir/project" rev-parse main)
+
+  run_merge "$dir" --target-branch "" --target-worktree "" \
+    > "$dir/out" 2> "$dir/err" || rc=$?
+
+  [ "$rc" -eq 2 ] || fail "empty target options returned $rc instead of a usage refusal"
+  assert_branch_unchanged "$dir/project" main "$main_before" "empty target refusal"
+  assert_no_target_provenance "$dir/home/state/task-x1.meta" "empty target refusal"
+  assert_grep 'requires a single non-empty value' "$dir/err" \
+    "empty target refusal was not explained"
+  pass "fm-merge-local: empty target options refuse rather than silently landing on main"
 }
 
 # The landing target is chosen at intake and recorded on the task, so the
@@ -248,6 +283,8 @@ test_captain_held_explicit_target_refuses_without_mutation() {
 
 test_explicit_nondefault_linked_target_lands_without_moving_main
 test_default_path_still_lands_on_main
+test_unselected_default_attempt_does_not_pin_a_later_explicit_target
+test_empty_target_options_refuse_instead_of_defaulting
 test_recorded_target_is_honored_when_options_are_omitted
 test_option_contradicting_the_recorded_target_refuses
 test_dirty_target_refuses_without_mutation

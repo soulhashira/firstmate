@@ -1127,59 +1127,71 @@ default_branch() {
   return 1
 }
 
-# Resolve the authoritative local-only landing target. New landings record both
-# fields atomically before the fast-forward; legacy records carry neither and
-# retain the historical default-branch behavior. A partial or unrelated record
+# Resolve the authoritative local-only landing target branch. New landings
+# record both fields atomically before the fast-forward; legacy records carry
+# neither and retain the historical default-branch behavior. A partial record
 # is never guessed around because cleanup would otherwise attribute the work to
-# a branch or repository that was not selected for this task.
-local_landing_branch() {
-  local branch=$LOCAL_TARGET_BRANCH target=$LOCAL_TARGET_WORKTREE
+# a branch that was not selected for this task. The branch is proved in $PROJ,
+# the copy cleanup always keeps, so naming the landing still works after a
+# separately owned target copy has been returned.
+# --require-target-copy additionally proves that copy is still a linked
+# worktree of the same repository. Only the no-discard comparison asks for it:
+# there a branch name resolved against an unrelated repository could make
+# unlanded work look landed, so that caller fails closed.
+local_landing_branch() {  # [--require-target-copy]
+  local require_copy=0 branch=$LOCAL_TARGET_BRANCH target=$LOCAL_TARGET_WORKTREE
   local project_common target_common
+  [ "${1-}" != --require-target-copy ] || require_copy=1
   if { [ -n "$branch" ] && [ -z "$target" ]; } \
      || { [ -z "$branch" ] && [ -n "$target" ]; }; then
     echo "REFUSED: task $ID has incomplete local target provenance." >&2
     return 1
   fi
   if [ -z "$branch" ]; then
-    default_branch
-    return
+    default_branch || {
+      echo "REFUSED: cannot determine default branch for $PROJ; expected origin/HEAD, main, or master." >&2
+      return 1
+    }
+    return 0
   fi
   git check-ref-format "refs/heads/$branch" >/dev/null 2>&1 || {
     echo "REFUSED: task $ID records invalid local target branch '$branch'." >&2
     return 1
   }
-  target=$(canonical_existing_dir "$target") || {
-    echo "REFUSED: task $ID's recorded local target copy is unavailable: $LOCAL_TARGET_WORKTREE." >&2
+  git -C "$PROJ" rev-parse --verify --quiet "refs/heads/$branch^{commit}" >/dev/null || {
+    echo "REFUSED: task $ID's recorded local target branch '$branch' no longer exists in $PROJ." >&2
     return 1
   }
-  worktree_registered_for_project "$PROJ" "$target" || {
-    echo "REFUSED: task $ID's recorded local target is not a linked copy of $PROJ." >&2
-    return 1
-  }
-  project_common=$(git -C "$PROJ" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || {
-    echo "REFUSED: cannot resolve the repository identity for $PROJ." >&2
-    return 1
-  }
-  project_common=$(canonical_existing_dir "$project_common") || {
-    echo "REFUSED: cannot resolve the repository identity for $PROJ." >&2
-    return 1
-  }
-  target_common=$(git -C "$target" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || {
-    echo "REFUSED: cannot resolve the repository identity for local target $target." >&2
-    return 1
-  }
-  target_common=$(canonical_existing_dir "$target_common") || {
-    echo "REFUSED: cannot resolve the repository identity for local target $target." >&2
-    return 1
-  }
-  [ "$project_common" = "$target_common" ] || {
-    echo "REFUSED: task $ID's recorded local target belongs to a different repository." >&2
-    return 1
-  }
-  git -C "$target" rev-parse --verify --quiet "refs/heads/$branch^{commit}" >/dev/null || {
-    echo "REFUSED: task $ID's recorded local target branch '$branch' no longer exists." >&2
-    return 1
-  }
+  if [ "$require_copy" = 1 ]; then
+    target=$(canonical_existing_dir "$target") || {
+      echo "REFUSED: task $ID's recorded local target copy is unavailable: $LOCAL_TARGET_WORKTREE." >&2
+      return 1
+    }
+    worktree_registered_for_project "$PROJ" "$target" || {
+      echo "REFUSED: task $ID's recorded local target is not a linked copy of $PROJ." >&2
+      return 1
+    }
+    project_common=$(git -C "$PROJ" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || {
+      echo "REFUSED: cannot resolve the repository identity for $PROJ." >&2
+      return 1
+    }
+    project_common=$(canonical_existing_dir "$project_common") || {
+      echo "REFUSED: cannot resolve the repository identity for $PROJ." >&2
+      return 1
+    }
+    target_common=$(git -C "$target" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || {
+      echo "REFUSED: cannot resolve the repository identity for local target $target." >&2
+      return 1
+    }
+    target_common=$(canonical_existing_dir "$target_common") || {
+      echo "REFUSED: cannot resolve the repository identity for local target $target." >&2
+      return 1
+    }
+    [ "$project_common" = "$target_common" ] || {
+      echo "REFUSED: task $ID's recorded local target belongs to a different repository." >&2
+      return 1
+    }
+  fi
   printf '%s\n' "$branch"
 }
 
@@ -1733,7 +1745,7 @@ validate_worktree_teardown_safety() {
   unpushed=$(printf '%s\n' "$unpushed_raw" | head -5)
 
   if [ -n "$unpushed" ] && [ "$MODE" = local-only ]; then
-    DEFAULT=$(local_landing_branch) || return 1
+    DEFAULT=$(local_landing_branch --require-target-copy) || return 1
     if ! unmerged_raw=$(git -C "$WT" log --oneline HEAD --not "refs/heads/$DEFAULT" -- 2>/dev/null); then
       if worktree_safety_blocked_by_lock "commits not on $DEFAULT"; then
         return "$TEARDOWN_WORKTREE_SAFETY_LOCK_BLOCKED"

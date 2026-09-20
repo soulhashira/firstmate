@@ -827,6 +827,60 @@ test_local_only_recorded_nondefault_target_controls_cleanup_and_attribution() {
   pass "local-only cleanup follows recorded nondefault provenance and leaves its separately owned target copy intact"
 }
 
+# The recorded target copy is separately owned and can be returned before this
+# task is cleaned up. Naming the landing branch in the completion note only
+# needs the branch to still exist in the surviving project repository, so a
+# returned target copy must not wedge the close permanently.
+test_local_only_recorded_target_rerun_survives_a_returned_target_copy() {
+  local case_dir target
+  case_dir=$(make_case returned-target-copy)
+  write_meta "$case_dir" local-only ship
+  wt_commit "$case_dir" "returned target copy work"
+  seed_backlog_in_flight "$case_dir"
+  target="$case_dir/pool-target"
+  git -C "$case_dir/project" worktree add -q -b gsg-sim "$target" main
+  printf 'local_target_branch=gsg-sim\nlocal_target_worktree=%s\n' "$target" \
+    >> "$case_dir/state/task-x1.meta"
+  git -C "$target" merge --ff-only fm/task-x1 >/dev/null
+  git -C "$case_dir/project" worktree remove --force "$case_dir/wt"
+  git -C "$case_dir/project" worktree remove --force "$target"
+  [ ! -d "$target" ] || fail "returned-target-copy: fixture did not return the target copy"
+  git -C "$case_dir/project" rev-parse --verify --quiet refs/heads/gsg-sim >/dev/null \
+    || fail "returned-target-copy: fixture lost the landing branch"
+
+  run_teardown "$case_dir" > "$case_dir/rerun.out" 2> "$case_dir/rerun.err" \
+    || fail "returned-target-copy: rerun after the target copy was returned failed: $(cat "$case_dir/rerun.err")"
+
+  assert_absent "$case_dir/state/task-x1.meta" \
+    "returned-target-copy: rerun left the task record behind"
+  [ "$(backlog_row_state "$case_dir")" = "done" ] \
+    || fail "returned-target-copy: rerun did not close the backlog row"
+  assert_grep 'local gsg-sim' "$case_dir/data/backlog.md" \
+    "returned-target-copy: completion did not name the recorded landing branch"
+  pass "local-only cleanup names its recorded landing branch after the target copy is returned"
+}
+
+# A project with no origin/HEAD and no main or master cannot resolve a default
+# landing branch. Teardown must say so rather than refusing with no output.
+test_local_only_unresolvable_default_branch_refuses_out_loud() {
+  local case_dir rc=0
+  case_dir=$(make_case no-default-branch)
+  write_meta "$case_dir" local-only ship
+  wt_commit "$case_dir" "work with no resolvable default"
+  seed_backlog_in_flight "$case_dir"
+  git -C "$case_dir/project" remote remove origin
+  git -C "$case_dir/project" branch -m main trunk
+
+  run_teardown "$case_dir" > "$case_dir/out" 2> "$case_dir/err" || rc=$?
+
+  expect_code 1 "$rc" "no-default-branch: teardown should refuse"
+  assert_present "$case_dir/state/task-x1.meta" \
+    "no-default-branch: refusal removed task metadata"
+  assert_grep 'cannot determine default branch' "$case_dir/err" \
+    "no-default-branch: teardown refused without explaining why"
+  pass "local-only cleanup names the unresolvable default branch instead of refusing silently"
+}
+
 # A first teardown can remove the task worktree and then exit at one of the
 # documented rerun points, leaving $WT gone and $META present. The invited rerun
 # still has to build the completion note, so the recorded landing branch must be
@@ -3748,6 +3802,8 @@ test_local_only_truly_unpushed_refuses
 test_local_only_merged_to_local_main_allows
 test_local_only_recorded_nondefault_target_controls_cleanup_and_attribution
 test_local_only_recorded_target_rerun_survives_a_removed_task_worktree
+test_local_only_recorded_target_rerun_survives_a_returned_target_copy
+test_local_only_unresolvable_default_branch_refuses_out_loud
 test_no_mistakes_origin_remote_allows
 test_no_mistakes_truly_unpushed_refuses
 test_local_only_force_overrides_unpushed

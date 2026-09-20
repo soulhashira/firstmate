@@ -6,10 +6,13 @@
 # locally instead of via a GitHub PR). It is the one sanctioned exception to hard
 # rule #1 "never run state-changing git in projects/", and it is narrow: it only
 # runs for mode=local-only tasks, only after the captain approves (or yolo=on
-# auto-approves), and only as a clean fast-forward. With no target options it
-# preserves the original behavior and lands in the recorded project's default
-# branch checkout. An override requires both an existing local branch and the
-# linked worktree already cleanly checked out on it; this command never fetches,
+# auto-approves), and only as a clean fast-forward. With no target options and
+# no recorded selection it preserves the original behavior exactly: it lands in
+# the recorded project's default branch checkout and records nothing, so an
+# interrupted default attempt never pins the task to a target. An explicit
+# override requires both an existing local branch and the linked worktree
+# already cleanly checked out on it, and is recorded before the fast-forward so
+# a later call and cleanup read the same selection; this command never fetches,
 # pushes, switches branches, forces, or discards.
 # The task's existing per-task control and metadata locks serialize the
 # captain-hold and task-incarnation checks through target provenance recording
@@ -37,16 +40,16 @@ TARGET_WORKTREE_ARG=
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --target-branch)
-      [ "$#" -ge 2 ] && [ -z "$TARGET_BRANCH_ARG" ] || {
-        echo "error: invalid local merge request" >&2
+      [ "$#" -ge 2 ] && [ -n "$2" ] && [ -z "$TARGET_BRANCH_ARG" ] || {
+        echo "error: --target-branch requires a single non-empty value" >&2
         exit 2
       }
       TARGET_BRANCH_ARG=$2
       shift 2
       ;;
     --target-worktree)
-      [ "$#" -ge 2 ] && [ -z "$TARGET_WORKTREE_ARG" ] || {
-        echo "error: invalid local merge request" >&2
+      [ "$#" -ge 2 ] && [ -n "$2" ] && [ -z "$TARGET_WORKTREE_ARG" ] || {
+        echo "error: --target-worktree requires a single non-empty value" >&2
         exit 2
       }
       TARGET_WORKTREE_ARG=$2
@@ -207,7 +210,9 @@ if [ -n "$RECORDED_TARGET_BRANCH" ]; then
     exit 1
   }
 fi
+RECORD_TARGET=0
 if [ -n "$TARGET_BRANCH_ARG" ]; then
+  RECORD_TARGET=1
   TARGET_WT=$(canonical_dir "$TARGET_WORKTREE_ARG") || {
     echo "error: requested local target copy is unavailable: $TARGET_WORKTREE_ARG" >&2
     exit 1
@@ -295,17 +300,19 @@ if ! git -C "$TARGET_WT" merge-base --is-ancestor "$TARGET_OID" "$TASK_OID"; the
   exit 1
 fi
 
-record_local_target || {
-  echo "error: could not record task $ID's authoritative local target; refusing before merge" >&2
-  exit 1
-}
-if [ "$(git -C "$TASK_WT" symbolic-ref --quiet --short HEAD 2>/dev/null || true)" != "$BRANCH" ] \
-   || [ "$(git -C "$TASK_WT" rev-parse --verify HEAD 2>/dev/null || true)" != "$TASK_OID" ] \
-   || [ "$(git -C "$TARGET_WT" symbolic-ref --quiet --short HEAD 2>/dev/null || true)" != "$TARGET_BRANCH" ] \
-   || [ "$(git -C "$TARGET_WT" rev-parse --verify HEAD 2>/dev/null || true)" != "$TARGET_OID" ] \
-   || [ -n "$(git -C "$TARGET_WT" status --porcelain 2>/dev/null | head -1)" ]; then
-  echo "error: task or local target identity changed while recording provenance; refusing" >&2
-  exit 1
+if [ "$RECORD_TARGET" = 1 ]; then
+  record_local_target || {
+    echo "error: could not record task $ID's authoritative local target; refusing before merge" >&2
+    exit 1
+  }
+  if [ "$(git -C "$TASK_WT" symbolic-ref --quiet --short HEAD 2>/dev/null || true)" != "$BRANCH" ] \
+     || [ "$(git -C "$TASK_WT" rev-parse --verify HEAD 2>/dev/null || true)" != "$TASK_OID" ] \
+     || [ "$(git -C "$TARGET_WT" symbolic-ref --quiet --short HEAD 2>/dev/null || true)" != "$TARGET_BRANCH" ] \
+     || [ "$(git -C "$TARGET_WT" rev-parse --verify HEAD 2>/dev/null || true)" != "$TARGET_OID" ] \
+     || [ -n "$(git -C "$TARGET_WT" status --porcelain 2>/dev/null | head -1)" ]; then
+    echo "error: task or local target identity changed while recording provenance; refusing" >&2
+    exit 1
+  fi
 fi
 
 before=$(git -C "$TARGET_WT" rev-parse --short "$TARGET_OID")
