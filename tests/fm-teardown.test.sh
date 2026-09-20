@@ -827,6 +827,37 @@ test_local_only_recorded_nondefault_target_controls_cleanup_and_attribution() {
   pass "local-only cleanup follows recorded nondefault provenance and leaves its separately owned target copy intact"
 }
 
+# A first teardown can remove the task worktree and then exit at one of the
+# documented rerun points, leaving $WT gone and $META present. The invited rerun
+# still has to build the completion note, so the recorded landing branch must be
+# proved through a repository that survives cleanup - not through the task copy
+# teardown has already returned.
+test_local_only_recorded_target_rerun_survives_a_removed_task_worktree() {
+  local case_dir target
+  case_dir=$(make_case recorded-target-rerun)
+  write_meta "$case_dir" local-only ship
+  wt_commit "$case_dir" "nondefault target work"
+  seed_backlog_in_flight "$case_dir"
+  target="$case_dir/target"
+  git -C "$case_dir/project" worktree add -q -b gsg-sim "$target" main
+  printf 'local_target_branch=gsg-sim\nlocal_target_worktree=%s\n' "$target" \
+    >> "$case_dir/state/task-x1.meta"
+  git -C "$target" merge --ff-only fm/task-x1 >/dev/null
+  git -C "$case_dir/project" worktree remove --force "$case_dir/wt"
+  [ ! -d "$case_dir/wt" ] || fail "recorded-target-rerun: fixture did not remove the task worktree"
+
+  run_teardown "$case_dir" > "$case_dir/rerun.out" 2> "$case_dir/rerun.err" \
+    || fail "recorded-target-rerun: rerun after the worktree was removed failed: $(cat "$case_dir/rerun.err")"
+
+  assert_absent "$case_dir/state/task-x1.meta" \
+    "recorded-target-rerun: rerun left the task record behind"
+  [ "$(backlog_row_state "$case_dir")" = "done" ] \
+    || fail "recorded-target-rerun: rerun did not close the backlog row"
+  assert_grep 'local gsg-sim' "$case_dir/data/backlog.md" \
+    "recorded-target-rerun: completion did not name the recorded landing branch"
+  pass "local-only cleanup rerun resolves its recorded landing branch after the task worktree is gone"
+}
+
 test_no_mistakes_origin_remote_allows() {
   local case_dir rc
   case_dir=$(make_case nm-origin)
@@ -3716,6 +3747,7 @@ test_teardown_manual_backend_leaves_the_backlog_to_the_operator
 test_local_only_truly_unpushed_refuses
 test_local_only_merged_to_local_main_allows
 test_local_only_recorded_nondefault_target_controls_cleanup_and_attribution
+test_local_only_recorded_target_rerun_survives_a_removed_task_worktree
 test_no_mistakes_origin_remote_allows
 test_no_mistakes_truly_unpushed_refuses
 test_local_only_force_overrides_unpushed

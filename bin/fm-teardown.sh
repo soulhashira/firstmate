@@ -1176,7 +1176,7 @@ local_landing_branch() {
     echo "REFUSED: task $ID's recorded local target belongs to a different repository." >&2
     return 1
   }
-  git -C "$WT" rev-parse --verify --quiet "refs/heads/$branch^{commit}" >/dev/null || {
+  git -C "$target" rev-parse --verify --quiet "refs/heads/$branch^{commit}" >/dev/null || {
     echo "REFUSED: task $ID's recorded local target branch '$branch' no longer exists." >&2
     return 1
   }

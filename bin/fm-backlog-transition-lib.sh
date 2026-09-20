@@ -838,35 +838,27 @@ fm_backlog_close_marker_path() {  # <state-dir> <id>
   printf '%s/%s.backlog-close\n' "$1" "$2"
 }
 
-# Pending-close records are line-oriented, so local landing notes encode their
-# one space and any literal percent bytes in the git branch. The branch itself
-# is revalidated on both write and replay; no generic percent-decoder is used.
+# Pending-close records are line-oriented, so a local landing note is serialized
+# as the literal prefix `local%20` followed by the branch verbatim. A git branch
+# can never contain a space, so stripping that one fixed prefix is unambiguous
+# even for a branch whose own name contains `%20`. The branch is validated with
+# `git check-ref-format` on both write and replay.
 fm_backlog_local_note_encode() {  # <local-note>
-  local note=$1 branch encoded
+  local note=$1 branch
   case "$note" in
     "local "*) branch=${note#local } ;;
     *) return 1 ;;
   esac
   git check-ref-format "refs/heads/$branch" >/dev/null 2>&1 || return 1
-  encoded=${branch//%/%25}
-  printf 'local%%20%s\n' "$encoded"
+  printf 'local%%20%s\n' "$branch"
 }
 
 fm_backlog_local_note_decode() {  # <serialized-local-note>
-  local serialized=$1 encoded branch rest
+  local serialized=$1 branch
   case "$serialized" in
-    local%20*) encoded=${serialized#local%20} ;;
+    local%20*) branch=${serialized#local%20} ;;
     *) return 1 ;;
   esac
-  rest=$encoded
-  while case "$rest" in *%*) true ;; *) false ;; esac; do
-    rest=${rest#*%}
-    case "$rest" in
-      25*) rest=${rest#25} ;;
-      *) return 1 ;;
-    esac
-  done
-  branch=${encoded//%25/%}
   git check-ref-format "refs/heads/$branch" >/dev/null 2>&1 || return 1
   printf 'local %s\n' "$branch"
 }

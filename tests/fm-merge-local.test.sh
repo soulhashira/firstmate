@@ -88,6 +88,46 @@ test_default_path_still_lands_on_main() {
   pass "fm-merge-local: omitted target preserves the guarded default-branch path"
 }
 
+# The landing target is chosen at intake and recorded on the task, so the
+# ordinary merge call carries no options at all and must still land there.
+test_recorded_target_is_honored_when_options_are_omitted() {
+  local dir main_before task_head out
+  dir=$(make_case recorded-target)
+  printf 'local_target_branch=gsg-sim\nlocal_target_worktree=%s\n' "$dir/target" \
+    >> "$dir/home/state/task-x1.meta"
+  main_before=$(git -C "$dir/project" rev-parse main)
+  task_head=$(git -C "$dir/task" rev-parse HEAD)
+
+  out=$(run_merge "$dir") || fail "recorded-target landing without options failed: $out"
+
+  [ "$(git -C "$dir/target" rev-parse HEAD)" = "$task_head" ] \
+    || fail "an omitted-option merge did not land on the recorded target"
+  assert_branch_unchanged "$dir/project" main "$main_before" \
+    "recorded-target landing without options"
+  assert_contains "$out" "merged fm/task-x1 into local gsg-sim" \
+    "the landing did not attribute the recorded branch"
+  pass "fm-merge-local: an omitted target honors the selection recorded at intake"
+}
+
+test_option_contradicting_the_recorded_target_refuses() {
+  local dir main_before target_before rc=0
+  dir=$(make_case contradicting-target)
+  printf 'local_target_branch=gsg-sim\nlocal_target_worktree=%s\n' "$dir/target" \
+    >> "$dir/home/state/task-x1.meta"
+  main_before=$(git -C "$dir/project" rev-parse main)
+  target_before=$(git -C "$dir/target" rev-parse gsg-sim)
+
+  run_merge "$dir" --target-branch main --target-worktree "$dir/project" \
+    > "$dir/out" 2> "$dir/err" || rc=$?
+
+  [ "$rc" -ne 0 ] || fail "a target contradicting the recorded selection was accepted"
+  assert_branch_unchanged "$dir/project" main "$main_before" "contradicting target refusal"
+  assert_branch_unchanged "$dir/project" gsg-sim "$target_before" "contradicting target refusal"
+  assert_grep 'refusing a different target' "$dir/err" \
+    "the refusal did not name the recorded selection as authoritative"
+  pass "fm-merge-local: an option contradicting the recorded target refuses"
+}
+
 test_dirty_target_refuses_without_mutation() {
   local dir before rc=0
   dir=$(make_case dirty-target)
@@ -208,6 +248,8 @@ test_captain_held_explicit_target_refuses_without_mutation() {
 
 test_explicit_nondefault_linked_target_lands_without_moving_main
 test_default_path_still_lands_on_main
+test_recorded_target_is_honored_when_options_are_omitted
+test_option_contradicting_the_recorded_target_refuses
 test_dirty_target_refuses_without_mutation
 test_diverged_target_refuses_without_mutation
 test_wrong_repository_and_wrong_branch_refuse_without_mutation
