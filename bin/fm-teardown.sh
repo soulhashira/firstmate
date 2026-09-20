@@ -8,8 +8,8 @@
 # Removing state/<id>.meta and landing the backlog transition are one step, not
 # two: bin/fm-backlog-transition-lib.sh owns that invariant, and both halves run
 # under the task's own meta lock before this script reports success. Because the
-# completion links (the PR, the report path, a local-main note) live only in the
-# record being removed, the intended transition is recorded in
+# completion links (the PR, the report path, or the recorded local target) live
+# only in the record being removed, the intended transition is recorded in
 # state/<id>.backlog-close first, so a process killed between the halves leaves
 # the next session start enough to finish it; a landed close removes that record.
 # A close that fails is fatal and loud, preserves its pending-close record, and
@@ -59,9 +59,9 @@
 # A gh lookup error falls back to the content check; if that is also inconclusive,
 # teardown refuses rather than risk discarding unlanded work.
 # Uncommitted changes are never landed.
-# local-only projects additionally accept work merged into the local default
-# branch (firstmate performs that merge after configured approval) as a fallback
-# for the common case where there is no remote at all.
+# local-only projects additionally accept work merged into their recorded local
+# target branch, falling back to the local default branch for legacy records.
+# Firstmate performs that merge after configured approval.
 # Scout tasks (kind=scout in meta) carve out of that check: their worktree is
 # declared scratch and the report at data/<task-id>/report.md is the work
 # product. Teardown proceeds only once the report exists and the shared
@@ -942,6 +942,8 @@ elif [ "$TREEHOUSE_SLOT_LOCK_REQUIRED" = 1 ]; then
 fi
 MODE=$(grep '^mode=' "$META" | cut -d= -f2- || true)
 [ -n "$MODE" ] || MODE=no-mistakes
+LOCAL_TARGET_BRANCH=$(fm_meta_get "$META" local_target_branch)
+LOCAL_TARGET_WORKTREE=$(fm_meta_get "$META" local_target_worktree)
 
 # A record accepted as a legacy incarnation (no spawn_gen, --legacy-record
 # given) may be torn down only when its recorded endpoint is confidently gone
@@ -1123,6 +1125,62 @@ default_branch() {
     fi
   done
   return 1
+}
+
+# Resolve the authoritative local-only landing target. New landings record both
+# fields atomically before the fast-forward; legacy records carry neither and
+# retain the historical default-branch behavior. A partial or unrelated record
+# is never guessed around because cleanup would otherwise attribute the work to
+# a branch or repository that was not selected for this task.
+local_landing_branch() {
+  local branch=$LOCAL_TARGET_BRANCH target=$LOCAL_TARGET_WORKTREE
+  local project_common target_common
+  if { [ -n "$branch" ] && [ -z "$target" ]; } \
+     || { [ -z "$branch" ] && [ -n "$target" ]; }; then
+    echo "REFUSED: task $ID has incomplete local target provenance." >&2
+    return 1
+  fi
+  if [ -z "$branch" ]; then
+    default_branch
+    return
+  fi
+  git check-ref-format "refs/heads/$branch" >/dev/null 2>&1 || {
+    echo "REFUSED: task $ID records invalid local target branch '$branch'." >&2
+    return 1
+  }
+  target=$(canonical_existing_dir "$target") || {
+    echo "REFUSED: task $ID's recorded local target copy is unavailable: $LOCAL_TARGET_WORKTREE." >&2
+    return 1
+  }
+  worktree_registered_for_project "$PROJ" "$target" || {
+    echo "REFUSED: task $ID's recorded local target is not a linked copy of $PROJ." >&2
+    return 1
+  }
+  project_common=$(git -C "$PROJ" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || {
+    echo "REFUSED: cannot resolve the repository identity for $PROJ." >&2
+    return 1
+  }
+  project_common=$(canonical_existing_dir "$project_common") || {
+    echo "REFUSED: cannot resolve the repository identity for $PROJ." >&2
+    return 1
+  }
+  target_common=$(git -C "$target" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || {
+    echo "REFUSED: cannot resolve the repository identity for local target $target." >&2
+    return 1
+  }
+  target_common=$(canonical_existing_dir "$target_common") || {
+    echo "REFUSED: cannot resolve the repository identity for local target $target." >&2
+    return 1
+  }
+  [ "$project_common" = "$target_common" ] || {
+    echo "REFUSED: task $ID's recorded local target belongs to a different repository." >&2
+    return 1
+  }
+  git -C "$WT" rev-parse --verify --quiet "refs/heads/$branch^{commit}" >/dev/null || {
+    echo "REFUSED: task $ID's recorded local target branch '$branch' no longer exists." >&2
+    return 1
+  }
+  printf '%s\n' "$branch"
 }
 
 meta_value() {
@@ -1379,11 +1437,11 @@ work_is_landed() {
 }
 
 # The completion links this teardown already holds locally. A scout's
-# deliverable is its report, a local-only ship lands on local main, and every
-# other ship carries the PR recorded on its own record.
+# deliverable is its report, a local-only ship names its authoritative local
+# target branch, and every other ship carries the PR recorded on its own record.
 BACKLOG_DONE_ARGS=()
 backlog_done_args() {
-  local data_relative
+  local data_relative landing_branch
   BACKLOG_DONE_ARGS=()
   case "$KIND" in
     scout)
@@ -1392,7 +1450,12 @@ backlog_done_args() {
       ;;
     *)
       if [ "$MODE" = local-only ]; then
-        BACKLOG_DONE_ARGS=(--note "local main")
+        if [ -z "$LOCAL_TARGET_BRANCH" ] && [ -z "$LOCAL_TARGET_WORKTREE" ]; then
+          landing_branch=main
+        else
+          landing_branch=$(local_landing_branch) || return 1
+        fi
+        BACKLOG_DONE_ARGS=(--note "local $landing_branch")
       elif [ -n "$PR_URL" ]; then
         BACKLOG_DONE_ARGS=(--pr "$PR_URL")
       fi
@@ -1670,21 +1733,21 @@ validate_worktree_teardown_safety() {
   unpushed=$(printf '%s\n' "$unpushed_raw" | head -5)
 
   if [ -n "$unpushed" ] && [ "$MODE" = local-only ]; then
-    DEFAULT=$(default_branch) || { echo "REFUSED: cannot determine default branch for $PROJ; expected origin/HEAD, main, or master." >&2; return 1; }
-    if ! unmerged_raw=$(git -C "$WT" log --oneline HEAD --not "$DEFAULT" -- 2>/dev/null); then
+    DEFAULT=$(local_landing_branch) || return 1
+    if ! unmerged_raw=$(git -C "$WT" log --oneline HEAD --not "refs/heads/$DEFAULT" -- 2>/dev/null); then
       if worktree_safety_blocked_by_lock "commits not on $DEFAULT"; then
         return "$TEARDOWN_WORKTREE_SAFETY_LOCK_BLOCKED"
       fi
-      echo "REFUSED: cannot inspect worktree $WT for commits not on $DEFAULT." >&2
+      echo "REFUSED: cannot inspect worktree $WT for commits not on local target $DEFAULT." >&2
       echo "Restore the git index state, or get the captain's explicit OK to discard, then --force." >&2
       return 1
     fi
     unmerged=$(printf '%s\n' "$unmerged_raw" | head -5)
     if [ -n "$dirty" ] || [ -n "$unmerged" ]; then
-      echo "REFUSED: local-only worktree $WT has work not yet merged into $DEFAULT and not on any remote." >&2
+      echo "REFUSED: local-only worktree $WT has work not yet merged into local target $DEFAULT and not on any remote." >&2
       [ -n "$dirty" ] && echo "uncommitted changes present" >&2
       [ -n "$unmerged" ] && printf 'commits not yet on %s:\n%s\n' "$DEFAULT" "$unmerged" >&2
-      echo "Merge the branch into local $DEFAULT first (bin/fm-merge-local.sh after the captain approves), or push to a fork/remote, or get the captain's explicit OK to discard, then --force." >&2
+      echo "Merge the branch into local $DEFAULT first (bin/fm-merge-local.sh after approval), or push to a fork/remote, or get the captain's explicit OK to discard, then --force." >&2
       return 1
     fi
   elif [ -n "$dirty" ]; then

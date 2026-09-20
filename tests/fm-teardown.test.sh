@@ -783,6 +783,50 @@ test_local_only_merged_to_local_main_allows() {
   pass "local-only worktree with work merged into local main is torn down (no regression)"
 }
 
+test_local_only_recorded_nondefault_target_controls_cleanup_and_attribution() {
+  local case_dir target target_head main_before rc
+  case_dir=$(make_case recorded-nondefault-target)
+  write_meta "$case_dir" local-only ship
+  wt_commit "$case_dir" "nondefault target work"
+  seed_backlog_in_flight "$case_dir"
+  target="$case_dir/pool/slot/repo"
+  mkdir -p "$case_dir/pool"
+  printf '{}\n' > "$case_dir/pool/treehouse-state.json"
+  git -C "$case_dir/project" worktree add -q -b gsg-sim "$target" main
+  printf 'local_target_branch=gsg-sim\nlocal_target_worktree=%s\n' "$target" \
+    >> "$case_dir/state/task-x1.meta"
+  fm_write_meta "$case_dir/state/target-owner.meta" \
+    "window=firstmate:fm-target-owner" "endpoint_task_id=target-owner" \
+    "worktree=$target" "project=$case_dir/project" "kind=ship" \
+    "mode=local-only" "spawn_gen=fixture-target-owner"
+  main_before=$(git -C "$case_dir/project" rev-parse main)
+  target_head=$(git -C "$target" rev-parse gsg-sim)
+
+  rc=0
+  run_teardown "$case_dir" > "$case_dir/preland.out" 2> "$case_dir/preland.err" || rc=$?
+  expect_code 1 "$rc" \
+    "recorded-nondefault-target: cleanup should refuse before gsg-sim contains the task"
+  assert_present "$case_dir/state/task-x1.meta" \
+    "recorded-nondefault-target: unlanded refusal removed task metadata"
+  [ "$(git -C "$target" rev-parse gsg-sim)" = "$target_head" ] \
+    || fail "recorded-nondefault-target: refused cleanup moved the target branch"
+
+  git -C "$target" merge --ff-only fm/task-x1 >/dev/null
+  target_head=$(git -C "$target" rev-parse gsg-sim)
+  run_teardown "$case_dir" > "$case_dir/landed.out" 2> "$case_dir/landed.err" \
+    || fail "recorded-nondefault-target: landed cleanup failed: $(cat "$case_dir/landed.err")"
+
+  [ "$(git -C "$case_dir/project" rev-parse main)" = "$main_before" ] \
+    || fail "recorded-nondefault-target: cleanup moved main"
+  [ -d "$target" ] && [ "$(git -C "$target" rev-parse HEAD)" = "$target_head" ] \
+    || fail "recorded-nondefault-target: cleanup removed or reset another task's target copy"
+  assert_present "$case_dir/state/target-owner.meta" \
+    "recorded-nondefault-target: cleanup removed the target copy owner's record"
+  assert_grep 'local gsg-sim' "$case_dir/data/backlog.md" \
+    "recorded-nondefault-target: completion did not name the selected landing branch"
+  pass "local-only cleanup follows recorded nondefault provenance and leaves its separately owned target copy intact"
+}
+
 test_no_mistakes_origin_remote_allows() {
   local case_dir rc
   case_dir=$(make_case nm-origin)
@@ -3671,6 +3715,7 @@ test_teardown_closes_the_backlog_item_itself
 test_teardown_manual_backend_leaves_the_backlog_to_the_operator
 test_local_only_truly_unpushed_refuses
 test_local_only_merged_to_local_main_allows
+test_local_only_recorded_nondefault_target_controls_cleanup_and_attribution
 test_no_mistakes_origin_remote_allows
 test_no_mistakes_truly_unpushed_refuses
 test_local_only_force_overrides_unpushed
