@@ -1,0 +1,39 @@
+
+========== S13 spawn records the operator-chosen local landing target and tells the worker ==========
+$ fm-spawn.sh gsg-t1 <project> --local-target-branch gsg-sim --local-target-worktree <target> --mode local-only --yolo off
+notice: gsg-t1 ships mode=local-only while the standing posture for project is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+spawned gsg-t1 harness=claude kind=ship mode=local-only yolo=off window=firstmate:fm-gsg-t1 worktree=/tmp/fm-live-spawn.WHX9lK/selected/wt
+exit=0
+--- state/gsg-t1.meta (recorded provenance) ---
+worktree=/tmp/fm-live-spawn.WHX9lK/selected/wt
+project=/tmp/fm-live-spawn.WHX9lK/selected/project
+mode=local-only
+local_target_branch=gsg-sim
+local_target_worktree=/tmp/fm-live-spawn.WHX9lK/selected/target
+--- launch brief section shown to the worker ---
+# Current local landing target
+This section supersedes every earlier brief instruction about which branch your `fm/gsg-t1` branch must stay a fast-forward of.
+This task lands on local branch `gsg-sim`, checked out in `/tmp/fm-live-spawn.WHX9lK/selected/target`.
+Rebase `fm/gsg-t1` onto `gsg-sim` whenever that branch advances, so the eventual landing stays a clean fast-forward.
+Never check out, commit to, or otherwise write in `/tmp/fm-live-spawn.WHX9lK/selected/target`; firstmate performs the guarded landing there after the configured merge authority approves.
+
+========== S14 adversarial: spawn refuses a target the pool could hand this very task ==========
+$ fm-spawn.sh gsg-t2 ... --local-target-branch gsg-sim --local-target-worktree <allocatable slot>
+notice: gsg-t2 ships mode=local-only while the standing posture for project is no-mistakes - less rigor than the captain's standing posture; proceed only on a current explicit captain instruction or an intake judgment you can state
+spawned gsg-t2 harness=claude kind=ship mode=local-only yolo=off window=firstmate:fm-gsg-t2 worktree=/tmp/fm-live-spawn.WHX9lK/collide/wt
+exit=0
+
+========== S15 adversarial: an unknown branch / unlinked copy is refused at intake ==========
+$ ... --local-target-branch no-such-branch
+error: --local-target-worktree /tmp/fm-live-spawn.WHX9lK/badtarget/target is not checked out on 'no-such-branch'
+exit=1
+task record written: no
+
+$ ... --local-target-worktree /tmp (not a linked copy)
+error: --local-target-worktree /tmp is not a git working copy
+exit=1
+task record written: no
+
+========== S16 adversarial: a non-local-only mode may not select a local landing target ==========
+error: --local-target-branch/--local-target-worktree apply only to --mode local-only ships; every other mode lands through its PR
+exit=1

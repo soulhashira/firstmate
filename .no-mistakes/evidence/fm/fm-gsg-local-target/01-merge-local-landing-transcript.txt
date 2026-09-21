@@ -1,0 +1,91 @@
+
+========== S1 review-diff: base is the recorded gsg-sim landing branch ==========
+$ git -C project log --oneline --all --decorate
+* f53b375 (fm/gsg-1) verified GSG delivery
+* 6da4412 (gsg-sim) simulation-only tuning (never on main)
+* c2ca24f (HEAD -> main) initial GSG core
+
+$ fm-review-diff.sh gsg-1 --stat
+diff base: gsg-sim
+ delivery.txt | 1 +
+ 1 file changed, 1 insertion(+)
+exit=0
+
+--- contrast: the same task WITHOUT a recorded local target (pre-fix behavior) ---
+$ fm-review-diff.sh gsg-1 --stat
+diff base: main
+ delivery.txt   | 1 +
+ sim-tuning.txt | 1 +
+ 2 files changed, 2 insertions(+)
+exit=0
+
+========== S2 review-diff never fetches for a local-only task (origin points nowhere) ==========
+$ git -C project remote -v
+origin	/tmp/fm-live-gsg/does-not-exist.git (fetch)
+origin	/tmp/fm-live-gsg/does-not-exist.git (push)
+$ fm-review-diff.sh gsg-1 --stat
+diff base: gsg-sim
+ delivery.txt | 1 +
+ 1 file changed, 1 insertion(+)
+exit=0
+
+========== S3 merge-local lands verified work on gsg-sim, main untouched ==========
+before: gsg-sim=6da4412  main=c2ca24f
+$ fm-merge-local.sh gsg-1
+merged fm/gsg-1 into local gsg-sim (6da4412 -> f53b375) in /tmp/fm-live-gsg/s3/target
+exit=0
+after:  gsg-sim=f53b375  main=c2ca24f
+$ git -C target log --oneline -3
+f53b375 verified GSG delivery
+6da4412 simulation-only tuning (never on main)
+c2ca24f initial GSG core
+$ git -C target status --porcelain (expect empty)
+RESULT: main unchanged -> OK
+RESULT: gsg-sim == fm/gsg-1 exactly (fast-forward) -> OK
+RESULT: reflog of gsg-sim:
+f53b375 gsg-sim@{0}: merge f53b3753276ce73ca9ca7e327205478adffb096d: Fast-forward
+6da4412 gsg-sim@{1}: commit: simulation-only tuning (never on main)
+c2ca24f gsg-sim@{2}: branch: Created from main
+
+========== S4 adversarial: diverged landing branch is refused with nothing moved ==========
+$ fm-merge-local.sh gsg-1
+REFUSED: fm/gsg-1 is not a fast-forward of gsg-sim (it has diverged).
+Have the worker rebase fm/gsg-1 onto gsg-sim, then retry.
+exit=1
+RESULT: gsg-sim unmoved -> OK
+RESULT: task work not discarded -> OK
+
+========== S5 adversarial: dirty landing copy is refused ==========
+$ fm-merge-local.sh gsg-1
+error: /tmp/fm-live-gsg/s5/target has a dirty working tree; refusing to merge into it
+exit=1
+RESULT: gsg-sim unmoved -> OK
+$ cat target/scratch.txt (operator edit preserved)
+uncommitted operator edit
+
+========== S6 adversarial: landing copy switched off the recorded branch is refused ==========
+$ fm-merge-local.sh gsg-1
+error: /tmp/fm-live-gsg/s6/target is on '', expected local target branch 'gsg-sim'; refusing
+exit=1
+RESULT: gsg-sim unmoved -> OK
+
+========== S7 adversarial: task worktree named as its own landing target is refused ==========
+$ fm-merge-local.sh gsg-1
+error: task worktree cannot also be the local landing target
+exit=1
+
+========== S9 default (no recorded target) still lands on main - legacy path intact ==========
+before: main=11df2f2
+$ fm-merge-local.sh gsg-1
+merged fm/gsg-1 into local main (11df2f2 -> 1612557) in /tmp/fm-live-gsg/s9/project
+exit=0
+after:  main=1612557
+$ meta after default landing (no target pinned):
+window=firstmate:fm-gsg-1
+endpoint_task_id=gsg-1
+worktree=/tmp/fm-live-gsg/s9/task
+project=/tmp/fm-live-gsg/s9/project
+harness=codex
+kind=ship
+mode=local-only
+spawn_gen=live-gsg-1

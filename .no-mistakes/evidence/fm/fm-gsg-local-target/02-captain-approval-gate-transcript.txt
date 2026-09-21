@@ -1,0 +1,15 @@
+=== operator holds the task for the captain ===
+hold placed
+hold-open-exit=0
+
+$ fm-merge-local.sh gsg-1   # captain has NOT released the hold
+error: task gsg-1 is still held for the captain; release it before merging
+exit=1
+RESULT: gsg-sim unmoved while held -> OK
+
+=== captain releases the hold, then the same command lands ===
+hold released
+$ fm-merge-local.sh gsg-1
+merged fm/gsg-1 into local gsg-sim (1ce8dbf -> ffa84e1) in /tmp/fm-live-gsg/s8b/target
+exit=0
+gsg-sim now: ffa84e1  main: cd0235a

@@ -1,0 +1,33 @@
+
+========== S10 cleanup refuses to discard work not yet landed on the recorded gsg-sim ==========
+$ fm-teardown.sh task-x1   # task commit is NOT yet on gsg-sim
+REFUSED: local-only worktree /tmp/fm-live-gsg/t1/wt has work not yet merged into local target gsg-sim and not on any remote.
+commits not yet on gsg-sim:
+54c8cbd verified GSG delivery
+Merge the branch into local gsg-sim first (bin/fm-merge-local.sh after approval), or push to a fork/remote, or get the captain's explicit OK to discard, then --force.
+exit=1
+task record still present: yes
+backlog row state: in_flight
+
+========== S11 after landing on gsg-sim, cleanup closes the row and names the branch ==========
+merged fm/task-x1 into local gsg-sim (a64de3b -> 54c8cbd) in /tmp/fm-live-gsg/t1/target
+$ fm-teardown.sh task-x1
+teardown task-x1 complete (window firstmate:fm-task-x1, worktree /tmp/fm-live-gsg/t1/wt)
+Backlog: task-x1 is closed in /tmp/fm-live-gsg/t1/data/backlog.md. Run tasks-axi ready for dependency-cleared candidates, check date gates, and dispatch only work whose blockers are gone and date is due.
+exit=0
+task record removed: yes
+main still at: 2efe216 ; gsg-sim at: 54c8cbd
+--- resulting backlog.md (product output) ---
+# Backlog
+
+## In flight
+## Queued
+## Done
+- [x] task-x1 - GSG local landing (kind: ship) (done 2026-09-21)
+  local gsg-sim
+
+========== S12 no remote publication: project has no remote and none was created ==========
+$ git -C project remote -v  (expect empty)
+(end)
+$ git -C project for-each-ref refs/remotes  (expect empty)
+(end)

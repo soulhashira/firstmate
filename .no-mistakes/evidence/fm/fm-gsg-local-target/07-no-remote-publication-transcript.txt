@@ -1,0 +1,15 @@
+========== S17 landing publishes nothing to the remote ==========
+origin refs BEFORE:
+  gsg-sim 10bf35b
+  main 30be976
+$ fm-merge-local.sh gsg-1
+merged fm/gsg-1 into local gsg-sim (10bf35b -> aa806ae) in /tmp/fm-live-gsg/nopush/target
+exit=0
+local gsg-sim now: aa806ae
+origin refs AFTER:
+  gsg-sim 10bf35b
+  main 30be976
+$ fm-review-diff.sh gsg-1 --stat  (local-only task: must not fetch)
+diff base: gsg-sim
+no changes vs gsg-sim
+exit=0

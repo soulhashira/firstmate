@@ -1,0 +1,12 @@
+=========== S14 adversarial: the chosen landing copy is an allocatable Treehouse pool slot ===========
+pool layout: /tmp/fm-live-spawn2.ftp87n/pool-collide/pool/treehouse-state.json + slot-a/repo on branch pooled-gsg-sim
+$ fm-spawn.sh gsg-pool-1 <project> --local-target-branch pooled-gsg-sim --local-target-worktree <pool slot> --mode local-only --yolo off
+error: --local-target-worktree /tmp/fm-live-spawn2.ftp87n/pool-collide/pool/slot-a/repo is a Treehouse pool slot for /tmp/fm-live-spawn2.ftp87n/pool-collide/project; the pool can hand that slot to this very task, which would move it off 'pooled-gsg-sim'
+Use a copy Treehouse does not allocate (the project checkout or a worktree outside the pool) as the landing target.
+exit=1
+slot still on its branch: pooled-gsg-sim
+slot clean (no writes): yes
+task record published:   no
+launch brief published:  no
+worker launched:         no
+temp root stranded:      no
