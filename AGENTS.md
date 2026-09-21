@@ -343,7 +343,7 @@ The path's worker, automated gates, and captain approval remain authoritative:
 - **no-mistakes** runs the full pipeline through a PR, then waits for the configured merge authority.
 - **direct-PR** has the worker push and open a PR without the no-mistakes pipeline, then waits for the configured merge authority.
 - **local-only** has the worker stop with a clean ready branch, then waits for the configured merge authority before firstmate uses the guarded fast-forward merge path.
-  A `local-only` task that must land somewhere other than the project's default branch has that target chosen at intake and passed to `bin/fm-spawn.sh` as `--local-target-branch <branch> --local-target-worktree <path>`, naming an existing local branch and the linked worktree of the same project already checked out on it.
+  A `local-only` task that must land somewhere other than the project's default branch has that target chosen at intake and passed to `bin/fm-spawn.sh` as `--local-target-branch <branch> --local-target-worktree <path>`, naming an existing local branch and the linked worktree of the same project already checked out on it, never a Treehouse pool slot the pool can hand to this very task.
   The spawn validates and records it on the task, so the worker's brief, the pre-approval review diff, the landing, and cleanup all read the same selection; omitting both flags keeps the default-branch landing.
 
 Delivery mode and `yolo` are orthogonal.
