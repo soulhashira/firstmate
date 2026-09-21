@@ -154,7 +154,48 @@ test_partial_selection_and_wrong_mode_are_refused() {
   pass "incomplete selections and non-local-only modes are refused"
 }
 
+# Treehouse allocates task worktrees out of a project's pool, so a pool slot is
+# never a stable landing target: the same spawn can be handed that very slot,
+# which moves it off the landing branch. The refusal therefore has to land
+# before the allocation request, while nothing has been written into the slot
+# and no endpoint, launch contract, or task record exists to strand. The pane
+# path here is the slot itself, standing in for the pool handing it over.
+test_treehouse_pool_slot_target_is_refused_before_allocation() {
+  local rec id pool slot out rc=0
+  id=spawn-local-target-t6
+  rec=$(make_case pool-slot-target "$id")
+  read_case_record "$rec"
+  pool="$CASE_DIR/pool"
+  slot="$pool/slot-a/repo"
+  mkdir -p "$pool"
+  printf '{}\n' > "$pool/treehouse-state.json"
+  git -C "$PROJ_DIR" worktree add --quiet -b pooled-gsg-sim "$slot" main
+
+  out=$(FM_FAKE_LAUNCH_LOG="$CASE_DIR/launch.log" \
+    run_local_spawn "$HOME_DIR" "$slot" "$FAKEBIN_DIR" "$id" "$PROJ_DIR" \
+    --local-target-branch pooled-gsg-sim --local-target-worktree "$slot") || rc=$?
+
+  [ "$rc" -ne 0 ] || fail "spawn accepted a Treehouse pool slot as the landing target"
+  assert_contains "$out" "is a Treehouse pool slot for" \
+    "spawn did not explain why a pool slot cannot be a landing target"
+  assert_contains "$out" "$slot" "the refusal did not name the offending copy"
+  [ "$(git -C "$slot" symbolic-ref --quiet --short HEAD)" = pooled-gsg-sim ] \
+    || fail "the refused spawn moved the pool slot off its landing branch"
+  [ -z "$(git -C "$slot" status --porcelain)" ] \
+    || fail "the refused spawn wrote into the pool slot"
+  assert_absent "$HOME_DIR/state/$id.meta" \
+    "the refused spawn published a task record"
+  assert_absent "$HOME_DIR/data/$id/launch-brief.md" \
+    "the refused spawn published a launch contract"
+  [ ! -e "/tmp/fm-$id" ] \
+    || { rm -rf "/tmp/fm-$id"; fail "the refused spawn stranded a temp root no teardown can find"; }
+  [ ! -s "$CASE_DIR/launch.log" ] \
+    || fail "the refused spawn launched a worker: $(cat "$CASE_DIR/launch.log")"
+  pass "a Treehouse pool slot is refused as a landing target before any slot is allocated"
+}
+
 test_selected_target_is_recorded_and_named_in_the_launch_brief
+test_treehouse_pool_slot_target_is_refused_before_allocation
 test_no_selection_records_nothing_and_keeps_the_default_contract
 test_unrelated_repository_target_is_refused_without_a_record
 test_target_copy_not_on_the_named_branch_is_refused

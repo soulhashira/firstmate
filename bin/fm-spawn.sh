@@ -2259,6 +2259,12 @@ if [ "$RELAUNCH" -eq 0 ] && [ -n "$LOCAL_TARGET_BRANCH" ]; then
     echo "error: --local-target-worktree $LOCAL_TARGET_WT is not checked out on '$LOCAL_TARGET_BRANCH'" >&2
     exit 1
   }
+  if [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ] \
+     && fm_treehouse_pool_slot "$PROJ_ABS" "$LOCAL_TARGET_WT"; then
+    echo "error: --local-target-worktree $LOCAL_TARGET_WT is a Treehouse pool slot for $PROJ_ABS; the pool can hand that slot to this very task, which would move it off '$LOCAL_TARGET_BRANCH'" >&2
+    echo "Use a copy Treehouse does not allocate (the project checkout or a worktree outside the pool) as the landing target." >&2
+    exit 1
+  fi
 fi
 if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
   SPAWN_TREEHOUSE_PROJECT_LOCK=$(fm_treehouse_project_lock_path "$PROJ_ABS") || {
@@ -3204,6 +3210,11 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
 
   validate_spawn_worktree "treehouse get" "$T"
 fi
+if [ -n "$LOCAL_TARGET_BRANCH" ] && [ -n "$WT" ] \
+   && [ "$(real_path_or_raw "$WT")" = "$LOCAL_TARGET_WT" ]; then
+  echo "error: task $ID's own worktree is also its local landing target $LOCAL_TARGET_WT; refusing; inspect window $T" >&2
+  exit 1
+fi
 if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ]; then
   freshen_spawn_worktree_base "$WT" || exit 1
 fi
@@ -3677,11 +3688,6 @@ else
   fi
 fi
 
-if [ -n "$LOCAL_TARGET_BRANCH" ] && [ -n "$WT" ] \
-   && [ "$(real_path_or_raw "$WT")" = "$LOCAL_TARGET_WT" ]; then
-  echo "error: task $ID's own worktree is also its local landing target $LOCAL_TARGET_WT; refusing" >&2
-  exit 1
-fi
 META_WINDOW=$T
 [ "$BACKEND" = orca ] && META_WINDOW=$W
 SPAWN_GEN="s$(date +%s).${BASHPID:-$$}.$RANDOM"

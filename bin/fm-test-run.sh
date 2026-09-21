@@ -1357,6 +1357,10 @@ families_for_changed_path() {
     bin/fm-pr-*|bin/fm-merge-local.sh|bin/fm-teardown.sh|bin/fm-review-diff.sh|\
     bin/fm-x-*|bin/fm-check*)
       printf '%s\n' pr-forge
+      # The only regression proving that a merge entrypoint owns the task
+      # control lock across validation - so forced cleanup cannot retire the
+      # task mid-merge - lives in the captain-hold suite, not in pr-forge.
+      printf '%s\n' __script__:fm-captain-hold-lifecycle.test.sh
       ;;
     bin/fm-nm-run-lib.sh)
       # Shared no-mistakes run-attribution primitives, sourced by both
