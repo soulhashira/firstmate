@@ -828,10 +828,12 @@ test_local_only_recorded_nondefault_target_controls_cleanup_and_attribution() {
 }
 
 # The recorded target copy is separately owned and can be returned before this
-# task is cleaned up. Naming the landing branch in the completion note only
-# needs the branch to still exist in the surviving project repository, so a
-# returned target copy must not wedge the close permanently.
-test_local_only_recorded_target_rerun_survives_a_returned_target_copy() {
+# task is cleaned up. Both the no-discard proof and the completion note only
+# need the landing branch to still exist in the surviving project repository,
+# so a returned target copy must not wedge cleanup of already-landed work. The
+# task copy stays present here with unpushed commits, which is what puts the
+# no-discard comparison on the path.
+test_local_only_landed_work_cleans_up_after_the_target_copy_is_returned() {
   local case_dir target
   case_dir=$(make_case returned-target-copy)
   write_meta "$case_dir" local-only ship
@@ -842,22 +844,48 @@ test_local_only_recorded_target_rerun_survives_a_returned_target_copy() {
   printf 'local_target_branch=gsg-sim\nlocal_target_worktree=%s\n' "$target" \
     >> "$case_dir/state/task-x1.meta"
   git -C "$target" merge --ff-only fm/task-x1 >/dev/null
-  git -C "$case_dir/project" worktree remove --force "$case_dir/wt"
   git -C "$case_dir/project" worktree remove --force "$target"
   [ ! -d "$target" ] || fail "returned-target-copy: fixture did not return the target copy"
+  [ -d "$case_dir/wt" ] || fail "returned-target-copy: fixture lost the task copy"
+  [ -n "$(git -C "$case_dir/wt" log --oneline HEAD --not --remotes --)" ] \
+    || fail "returned-target-copy: fixture has no unpushed commits to prove landed"
   git -C "$case_dir/project" rev-parse --verify --quiet refs/heads/gsg-sim >/dev/null \
     || fail "returned-target-copy: fixture lost the landing branch"
 
-  run_teardown "$case_dir" > "$case_dir/rerun.out" 2> "$case_dir/rerun.err" \
-    || fail "returned-target-copy: rerun after the target copy was returned failed: $(cat "$case_dir/rerun.err")"
+  run_teardown "$case_dir" > "$case_dir/out" 2> "$case_dir/err" \
+    || fail "returned-target-copy: cleanup after the target copy was returned failed: $(cat "$case_dir/err")"
 
   assert_absent "$case_dir/state/task-x1.meta" \
-    "returned-target-copy: rerun left the task record behind"
+    "returned-target-copy: cleanup left the task record behind"
   [ "$(backlog_row_state "$case_dir")" = "done" ] \
-    || fail "returned-target-copy: rerun did not close the backlog row"
+    || fail "returned-target-copy: cleanup did not close the backlog row"
   assert_grep 'local gsg-sim' "$case_dir/data/backlog.md" \
     "returned-target-copy: completion did not name the recorded landing branch"
-  pass "local-only cleanup names its recorded landing branch after the target copy is returned"
+  pass "local-only landed work cleans up after its separately owned target copy is returned"
+}
+
+# Removing the target-copy requirement must not weaken the no-discard proof:
+# unlanded commits in a task copy still refuse while the target copy is gone.
+test_local_only_unlanded_work_still_refuses_after_the_target_copy_is_returned() {
+  local case_dir target rc=0
+  case_dir=$(make_case returned-target-copy-unlanded)
+  write_meta "$case_dir" local-only ship
+  wt_commit "$case_dir" "unlanded work"
+  seed_backlog_in_flight "$case_dir"
+  target="$case_dir/pool-target"
+  git -C "$case_dir/project" worktree add -q -b gsg-sim "$target" main
+  printf 'local_target_branch=gsg-sim\nlocal_target_worktree=%s\n' "$target" \
+    >> "$case_dir/state/task-x1.meta"
+  git -C "$case_dir/project" worktree remove --force "$target"
+
+  run_teardown "$case_dir" > "$case_dir/out" 2> "$case_dir/err" || rc=$?
+
+  expect_code 1 "$rc" "returned-target-copy-unlanded: cleanup should refuse unlanded work"
+  assert_present "$case_dir/state/task-x1.meta" \
+    "returned-target-copy-unlanded: refusal removed task metadata"
+  assert_grep 'not yet merged into local target gsg-sim' "$case_dir/err" \
+    "returned-target-copy-unlanded: refusal did not name the unlanded landing target"
+  pass "local-only unlanded work still refuses when its target copy is gone"
 }
 
 # A project with no origin/HEAD and no main or master cannot resolve a default
@@ -3802,7 +3830,8 @@ test_local_only_truly_unpushed_refuses
 test_local_only_merged_to_local_main_allows
 test_local_only_recorded_nondefault_target_controls_cleanup_and_attribution
 test_local_only_recorded_target_rerun_survives_a_removed_task_worktree
-test_local_only_recorded_target_rerun_survives_a_returned_target_copy
+test_local_only_landed_work_cleans_up_after_the_target_copy_is_returned
+test_local_only_unlanded_work_still_refuses_after_the_target_copy_is_returned
 test_local_only_unresolvable_default_branch_refuses_out_loud
 test_no_mistakes_origin_remote_allows
 test_no_mistakes_truly_unpushed_refuses
