@@ -25,7 +25,9 @@
 #   refused as a flag value.
 #   --local-target-branch and --local-target-worktree name a --mode local-only
 #   ship's approved landing target: an existing local branch and the linked
-#   worktree of the same project already checked out on it. They are supplied
+#   worktree of the same project already checked out on it. A Treehouse pool
+#   slot is refused as that copy, because the pool can hand the slot to this
+#   very task and move it off the selected branch. They are supplied
 #   together, refused on every other mode and kind, validated before the worker
 #   exists, and recorded on the task as local_target_branch/local_target_worktree.
 #   That record is the single authority the launch brief, bin/fm-merge-local.sh,
