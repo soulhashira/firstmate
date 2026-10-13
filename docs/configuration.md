@@ -893,6 +893,29 @@ Each is one line in a local, gitignored `config/` file, with an environment vari
 That configuration is the whole opt-in: an unconfigured home cannot start the relay and cannot run `fm-inbox.sh say` or `ask`, while `note`, `status`, `list` and `drain` need no configuration at all because they make no model call.
 The voice handover depends on `note`, so it keeps working in a home that has configured nothing.
 
+### Sim Lab reply files
+
+An external GSG DEV TOOL Sim Lab client queues work only through [`fm-inbox.sh note -`](../bin/fm-inbox.sh), whose header and `--help` output own the exact command mechanics.
+A note may name the caller-owned reply file as `reply_file=/absolute/path`; a valid absolute value is itself the reply-request signal.
+After handling the note, the operator publishes exactly one schema-v1 JSON object to that path by writing a temporary file in the destination directory and atomically renaming it into place.
+For a GSG-DEV checkout rooted at `/absolute/path/to/GSG-DEV`, the concrete reply path is `/absolute/path/to/GSG-DEV/devtool-chat/replies/firstmate-<request_id>.json`.
+The schema has exactly these fields:
+
+```json
+{
+  "schema_version": 1,
+  "request_id": "<request_id>",
+  "target": "<target>",
+  "message": "<reply text>",
+  "created_at": "2026-10-13T00:00:00Z"
+}
+```
+
+`created_at` is an RFC3339 timestamp.
+The caller owns the absolute destination path and its surrounding project policy; this convention authorizes neither automatic replies nor arbitrary project writes by an agent.
+An optional `herdr pane run` nudge may tell the client to look for the published file, but it carries no message, task, or authority and is never the durable queue.
+`fm-inbox.sh note -` remains the sole durable queue for the request.
+
 | File | Environment | Holds |
 | --- | --- | --- |
 | `config/voice-region` | `FM_VOICE_REGION` | Bedrock region for the relay's bidirectional session, required by `bin/fm-voice-relay.py`. |
