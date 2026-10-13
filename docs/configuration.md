@@ -896,7 +896,7 @@ The voice handover depends on `note`, so it keeps working in a home that has con
 ### Sim Lab reply files
 
 An external GSG DEV TOOL Sim Lab client queues work only through [`fm-inbox.sh note -`](../bin/fm-inbox.sh), whose header and `--help` output own the exact command mechanics.
-The note itself must state that a reply is requested and name the absolute reply-file path owned by the caller.
+The note names the absolute reply-file path owned by the caller, which is itself the reply-request signal.
 After handling the note, the operator publishes exactly one schema-v1 JSON object to that path by writing a temporary file in the destination directory and atomically renaming it into place.
 For a GSG-DEV checkout rooted at `/absolute/path/to/GSG-DEV`, the concrete reply path is `/absolute/path/to/GSG-DEV/devtool-chat/replies/firstmate-<request_id>.json`.
 The schema has exactly these fields:
